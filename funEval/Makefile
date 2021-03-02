@@ -1,11 +1,18 @@
-SRC = main.c gpusetup.c
-HDR = gpusetup.h
+SRC = main.c gpuSetup.c
+HDR = gpuSetup.h
 KRN = funEvalKernel.cl
 
 BIN = feval
+LIB = 
 
-LIB = -framework OpenCL
-FLG = 
+UNAME_S := $(shell uname -s)
+ifeq ($(UNAME_S),Darwin)
+	LIB += -framework OpenCL
+else
+	LIB += -l OpenCL
+endif
+
+FLG = -Wall -O3  # -DUSE_DOUBLE
 
 default: $(BIN)
 

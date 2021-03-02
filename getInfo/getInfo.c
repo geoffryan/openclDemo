@@ -1,6 +1,11 @@
 #include <stdio.h>
 #include <stdlib.h>
+#define CL_TARGET_OPENCL_VERSION 110
+#ifdef __APPLE__
 #include <OpenCL/opencl.h>
+#else
+#include <CL/cl.h>
+#endif
 
 
 void printInfoCLUINT(cl_device_id dev, cl_device_info attr, char name[])
@@ -14,7 +19,7 @@ void printInfoCLULONG(cl_device_id dev, cl_device_info attr, char name[])
 {
     cl_ulong info;
     clGetDeviceInfo(dev, attr, sizeof(cl_ulong), &info, NULL);
-    printf("        %s: %llu\n", name, info);
+    printf("        %s: %llu\n", name, (unsigned long long)info);
 }
 
 void printInfoCLBOOL(cl_device_id dev, cl_device_info attr, char name[])
@@ -103,7 +108,8 @@ int main(int argc, char *argv[])
             printInfoCLBOOL(device[j], CL_DEVICE_AVAILABLE, "Available");
             printInfoCLBOOL(device[j], CL_DEVICE_COMPILER_AVAILABLE,
                             "Compiler Available");
-            
+
+#ifdef CL_DEVICE_DOUBLE_FP_CONFIG
             clGetDeviceInfo(device[j], CL_DEVICE_DOUBLE_FP_CONFIG,
                             sizeof(cl_device_fp_config), &info_fp_config,NULL);
             printf("        Double FP Config:\n");
@@ -119,6 +125,7 @@ int main(int argc, char *argv[])
             printf("            Round to Inf: %u\n", info_uint);
             info_uint = info_fp_config & CL_FP_FMA ? 1 : 0;
             printf("            FMA: %u\n", info_uint);
+#endif
             
             printInfoCLBOOL(device[j], CL_DEVICE_ENDIAN_LITTLE,
                             "Endian Little");
@@ -154,7 +161,8 @@ int main(int argc, char *argv[])
                             "Global Mem Cacheline Size");
             printInfoCLULONG(device[j], CL_DEVICE_GLOBAL_MEM_SIZE,
                             "Global Mem Size");
-            
+
+#ifdef CL_DEVICE_HALF_FP_CONFIG
             clGetDeviceInfo(device[j], CL_DEVICE_HALF_FP_CONFIG,
                             sizeof(cl_device_fp_config), &info_fp_config,NULL);
             printf("        HALF FP Config:\n");
@@ -170,6 +178,7 @@ int main(int argc, char *argv[])
             printf("            Round to Inf: %u\n", info_uint);
             info_uint = info_fp_config & CL_FP_FMA ? 1 : 0;
             printf("            FMA: %u\n", info_uint);
+#endif
            
             printInfoCLBOOL(device[j], CL_DEVICE_IMAGE_SUPPORT,
                             "Image Support");

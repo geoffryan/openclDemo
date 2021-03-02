@@ -68,9 +68,15 @@ void gpuInit(struct gpuSetup *gpu, int dev)
         exit(0);
     }
 
+#ifdef USE_DOUBLE
     ret = clBuildProgram(gpu->program, 1, &(gpu->devID),
-                            "-Werror -D NQ=5",
+                            "-Werror -D USE_DOUBLE",
                             NULL, NULL);
+#else
+    ret = clBuildProgram(gpu->program, 1, &(gpu->devID),
+                            "-Werror",
+                            NULL, NULL);
+#endif
     if(ret != CL_SUCCESS)
     {
         printf("Could not build program: ");
@@ -108,12 +114,14 @@ void gpuInit(struct gpuSetup *gpu, int dev)
         exit(0);
     }
 
+#ifdef USE_DOUBLE
     gpu->kern_feval = clCreateKernel(gpu->program, "kern_feval", &ret);
     if(ret != CL_SUCCESS)
     {
         printf("Could not create Kernel\n");
         exit(0);
     }
+#endif
 
     gpu->kern_feval_f = clCreateKernel(gpu->program, "kern_feval_f", &ret);
     if(ret != CL_SUCCESS)
@@ -123,14 +131,18 @@ void gpuInit(struct gpuSetup *gpu, int dev)
     }
 }
 
-void gpuFree(struct gpuSetup *gpu)
+cl_int gpuFree(struct gpuSetup *gpu)
 {
     cl_int ret;
     ret = clFlush(gpu->queue);
     ret = clFinish(gpu->queue);
+#ifdef USE_DOUBLE
     ret = clReleaseKernel(gpu->kern_feval);
+#endif
     ret = clReleaseKernel(gpu->kern_feval_f);
     ret = clReleaseProgram(gpu->program);
     ret = clReleaseCommandQueue(gpu->queue);
     ret = clReleaseContext(gpu->context);
+
+    return ret;
 }

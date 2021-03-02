@@ -2,7 +2,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
+#define CL_TARGET_OPENCL_VERSION 110
+#ifdef __APPLE__
 #include <OpenCL/opencl.h>
+#else
+#include <CL/cl.h>
+#endif
 #include "gpuSetup.h"
 
 clock_t runSerial(double *x, double *f, int N)
@@ -21,7 +26,7 @@ clock_t runSerial_f(float *x, float *f, int N)
     clock_t start = clock();
     int i;
     for(i=0; i<N; i++)
-        f[i] = x[i]*x[i] - 3*x[i] + 1.0;
+        f[i] = x[i]*x[i] - 3.0f*x[i] + 1.0f;
     clock_t end = clock();
 
     return end-start;
@@ -33,13 +38,12 @@ clock_t runOCL_f(float *x, float *f, int N, struct gpuSetup *gpu)
     size_t size = N*sizeof(float);
     cl_mem x_mem_obj = clCreateBuffer(gpu->context, CL_MEM_READ_ONLY,
                                       size, NULL, &ret);
-    cl_mem f_mem_obj = clCreateBuffer(gpu->context, CL_MEM_READ_WRITE,
+    cl_mem f_mem_obj = clCreateBuffer(gpu->context, CL_MEM_WRITE_ONLY,
                                       size, NULL, &ret);
 
-    clock_t start = clock();
 
-    ret = clEnqueueWriteBuffer(gpu->queue, x_mem_obj, CL_FALSE, 0, size,
-                               x, 0, NULL, NULL);
+    ret = clEnqueueWriteBuffer(gpu->queue, x_mem_obj, CL_TRUE, 0, size,
+                               (void *)x, 0, NULL, NULL);
 
     ret = clSetKernelArg(gpu->kern_feval_f, 0, sizeof(cl_mem),
                          (void *)&x_mem_obj);
@@ -47,14 +51,16 @@ clock_t runOCL_f(float *x, float *f, int N, struct gpuSetup *gpu)
                          (void *)&f_mem_obj);
 
     size_t workSize = N;
-    size_t groupSize = 32;
+    size_t groupSize = 16;
 
+    clock_t start = clock();
     ret = clEnqueueNDRangeKernel(gpu->queue, gpu->kern_feval_f, 1, NULL,
-                                 &workSize, &groupSize, 0, NULL, NULL);
-    ret = clEnqueueReadBuffer(gpu->queue, f_mem_obj, CL_FALSE, 0, size,
-                              f, 0, NULL, NULL);
-
+                                 &workSize, &groupSize,
+                                 0, NULL, NULL);
     clock_t end = clock();
+    ret = clEnqueueReadBuffer(gpu->queue, f_mem_obj, CL_TRUE, 0, size,
+                              (void *)f, 0, NULL, NULL);
+
 
     clReleaseMemObject(x_mem_obj);
     clReleaseMemObject(f_mem_obj);
@@ -68,12 +74,11 @@ clock_t runOCL(double *x, double *f, int N, struct gpuSetup *gpu)
     size_t size = N*sizeof(double);
     cl_mem x_mem_obj = clCreateBuffer(gpu->context, CL_MEM_READ_ONLY,
                                       size, NULL, &ret);
-    cl_mem f_mem_obj = clCreateBuffer(gpu->context, CL_MEM_READ_WRITE,
+    cl_mem f_mem_obj = clCreateBuffer(gpu->context, CL_MEM_WRITE_ONLY,
                                       size, NULL, &ret);
 
-    clock_t start = clock();
 
-    ret = clEnqueueWriteBuffer(gpu->queue, x_mem_obj, CL_FALSE, 0, size,
+    ret = clEnqueueWriteBuffer(gpu->queue, x_mem_obj, CL_TRUE, 0, size,
                                x, 0, NULL, NULL);
 
     ret = clSetKernelArg(gpu->kern_feval, 0, sizeof(cl_mem),
@@ -83,13 +88,14 @@ clock_t runOCL(double *x, double *f, int N, struct gpuSetup *gpu)
 
     size_t workSize = N;
     size_t groupSize = 32;
+    clock_t start = clock();
 
     ret = clEnqueueNDRangeKernel(gpu->queue, gpu->kern_feval, 1, NULL,
                                  &workSize, &groupSize, 0, NULL, NULL);
-    ret = clEnqueueReadBuffer(gpu->queue, f_mem_obj, CL_FALSE, 0, size,
+    clock_t end = clock();
+    ret = clEnqueueReadBuffer(gpu->queue, f_mem_obj, CL_TRUE, 0, size,
                               f, 0, NULL, NULL);
 
-    clock_t end = clock();
 
     clReleaseMemObject(x_mem_obj);
     clReleaseMemObject(f_mem_obj);
@@ -135,117 +141,91 @@ int main(int argc, char *argv[])
 
     int N = (int) strtol(argv[1], NULL, 10);
 
-    struct gpuSetup gpu0;
-    struct gpuSetup gpu1;
-    struct gpuSetup gpu2;
+    double *xd = (double *)malloc(N * sizeof(double));
+    double *fSd = (double *)malloc(N * sizeof(double));
+    double *fd = (double *)malloc(N * sizeof(double));
 
-    double *x = (double *)malloc(N * sizeof(double));
-    double *fS = (double *)malloc(N * sizeof(double));
-    double *f0 = (double *)malloc(N * sizeof(double));
-    double *f1 = (double *)malloc(N * sizeof(double));
-    double *f2 = (double *)malloc(N * sizeof(double));
-
-    float *x_f = (float *)malloc(N * sizeof(float));
-    float *fS_f = (float *)malloc(N * sizeof(float));
-    float *f0_f = (float *)malloc(N * sizeof(float));
-    float *f1_f = (float *)malloc(N * sizeof(float));
-    float *f2_f = (float *)malloc(N * sizeof(float));
+    float *xf = (float *)malloc(N * sizeof(float));
+    float *fSf = (float *)malloc(N * sizeof(float));
+    float *ff = (float *)malloc(N * sizeof(float));
 
     int i;
     double xmax = 10.0;
     for(i=0; i<N; i++)
     {
-        x[i] = (i*xmax)/(N-1);
-        x_f[i] = (float)x[i];
+        xd[i] = (i*xmax)/(N-1);
+        xf[i] = (float)xd[i];
     }
-
-    gpuInit(&gpu0, 0);
-    gpuInit(&gpu1, 1);
-    gpuInit(&gpu2, 2);
-  
-    clock_t cS = runSerial(x, fS, N);
-    clock_t c0 = runOCL(x, f0, N, &gpu0);
-    clock_t c1 = runOCL(x, f1, N, &gpu1);
-    clock_t c2 = runOCL(x, f2, N, &gpu2);
-  
-    clock_t cS_f = runSerial_f(x_f, fS_f, N);
-    clock_t c0_f = runOCL_f(x_f, f0_f, N, &gpu0);
-    clock_t c1_f = runOCL_f(x_f, f1_f, N, &gpu1);
-    clock_t c2_f = runOCL_f(x_f, f2_f, N, &gpu2);
-
-    double errS = L1(x, fS, fS, N);
-    double err0 = L1(x, fS, f0, N);
-    double err1 = L1(x, fS, f1, N);
-    double err2 = L1(x, fS, f2, N);
-
-    double errS_f = L1_f(x_f, fS_f, fS_f, N);
-    double err0_f = L1_f(x_f, fS_f, f0_f, N);
-    double err1_f = L1_f(x_f, fS_f, f1_f, N);
-    double err2_f = L1_f(x_f, fS_f, f2_f, N);
-
+    
+    clock_t cSf = runSerial_f(xf, fSf, N);
+    clock_t cSd = runSerial(xd, fSd, N);
     if(N <= 32)
     {
-        printf("Serial:");
+        printf("Serial (single):");
         for(i=0; i<N; i++)
-            printf(" %.3lf", fS[i]);
+            printf(" %.3lf", fSf[i]);
         printf("\n");
-
-        printf("Dev0:");
+        printf("Serial (double):");
         for(i=0; i<N; i++)
-            printf(" %.3lf", f0[i]);
+            printf(" %.3lf", fSd[i]);
         printf("\n");
+    }
+    printf("Serial (single): %.1e s\n", cSf / ((double) CLOCKS_PER_SEC));
+    printf("Serial (double): %.1e s\n", cSd / ((double) CLOCKS_PER_SEC));
 
-        printf("Dev1:");
+    cl_uint numDev;
+    cl_platform_id platform;
+    clGetPlatformIDs(1, &platform, NULL);
+    clGetDeviceIDs(platform, CL_DEVICE_TYPE_ALL, 0, NULL, &numDev);
+    cl_uint j;
+    for(j=0; j<numDev; j++)
+    {
+        printf("\nDevice %llu\n", (unsigned long long) j);
         for(i=0; i<N; i++)
-            printf(" %.3lf", f1[i]);
-        printf("\n");
+        {
+            fd[i] = 0.0;
+            ff[i] = 0.0f;
+        }
+        struct gpuSetup gpu;
+        gpuInit(&gpu, j);
 
-        printf("Dev2:");
-        for(i=0; i<N; i++)
-            printf(" %.3lf", f2[i]);
-        printf("\n\n");
+        clock_t cf = runOCL_f(xf, ff, N, &gpu);
+        double errf = L1_f(xf, fSf, ff, N);
         
-        printf("Serial:");
-        for(i=0; i<N; i++)
-            printf(" %.3f", fS_f[i]);
-        printf("\n");
-
-        printf("Dev0:");
-        for(i=0; i<N; i++)
-            printf(" %.3f", f0_f[i]);
-        printf("\n");
-
-        printf("Dev1:");
-        for(i=0; i<N; i++)
-            printf(" %.3f", f1_f[i]);
-        printf("\n");
-
-        printf("Dev2:");
-        for(i=0; i<N; i++)
-            printf(" %.3f", f2_f[i]);
-        printf("\n\n");
+#ifdef USE_DOUBLE
+        clock_t cd = runOCL_f(xd, fd, N, &gpu);
+        double errd = L1(xd, fSd, fd, N);
+#endif
+    
+        if(N <= 32)
+        {
+            printf("Dev%llu (single):", (unsigned long long) j);
+            for(i=0; i<N; i++)
+                printf(" %.3lf", ff[i]);
+            printf("\n");
+#ifdef USE_DOUBLE
+            printf("Dev%llu (double):", (unsigned long long) j);
+            for(i=0; i<N; i++)
+                printf(" %.3lf", fd[i]);
+            printf("\n");
+#endif
+        }
+        printf("Dev%llu (single):   %.1e s  (%.2e)\n", (unsigned long long) j,
+               cf / ((double) CLOCKS_PER_SEC), errf);
+#ifdef USE_DOUBLE
+        printf("Dev%llu (double):   %.1e s  (%.2e)\n", (unsigned long long) j,
+               cd / ((double) CLOCKS_PER_SEC), errd);
+#endif
+    
+        gpuFree(&gpu);
     }
 
-
-    printf("Serial: %.1e s  (%.2e)\n", cS / ((double) CLOCKS_PER_SEC), errS);
-    printf("Dev0:   %.1e s  (%.2e)\n", c0 / ((double) CLOCKS_PER_SEC), err0);
-    printf("Dev1:   %.1e s  (%.2e)\n", c1 / ((double) CLOCKS_PER_SEC), err1);
-    printf("Dev2:   %.1e s  (%.2e)\n", c2 / ((double) CLOCKS_PER_SEC), err2);
-
-    printf("Serial: %.1e s  (%.2e)\n", cS_f / ((double) CLOCKS_PER_SEC), errS_f);
-    printf("Dev0:   %.1e s  (%.2e)\n", c0_f / ((double) CLOCKS_PER_SEC), err0_f);
-    printf("Dev1:   %.1e s  (%.2e)\n", c1_f / ((double) CLOCKS_PER_SEC), err1_f);
-    printf("Dev2:   %.1e s  (%.2e)\n", c2_f / ((double) CLOCKS_PER_SEC), err2_f);
-    
-    gpuFree(&gpu0);
-    gpuFree(&gpu1);
-    gpuFree(&gpu2);
-
-    free(x);
-    free(fS);
-    free(f0);
-    free(f1);
-    free(f2);
+    free(xf);
+    free(xd);
+    free(fSf);
+    free(fSd);
+    free(ff);
+    free(fd);
 
     return 0;
 }

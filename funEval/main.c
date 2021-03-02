@@ -139,93 +139,126 @@ int main(int argc, char *argv[])
         return 0;
     }
 
-    int N = (int) strtol(argv[1], NULL, 10);
-
-    double *xd = (double *)malloc(N * sizeof(double));
-    double *fSd = (double *)malloc(N * sizeof(double));
-    double *fd = (double *)malloc(N * sizeof(double));
-
-    float *xf = (float *)malloc(N * sizeof(float));
-    float *fSf = (float *)malloc(N * sizeof(float));
-    float *ff = (float *)malloc(N * sizeof(float));
-
-    int i;
-    double xmax = 10.0;
-    for(i=0; i<N; i++)
-    {
-        xd[i] = (i*xmax)/(N-1);
-        xf[i] = (float)xd[i];
-    }
-    
-    clock_t cSf = runSerial_f(xf, fSf, N);
-    clock_t cSd = runSerial(xd, fSd, N);
-    if(N <= 32)
-    {
-        printf("Serial (single):");
-        for(i=0; i<N; i++)
-            printf(" %.3lf", fSf[i]);
-        printf("\n");
-        printf("Serial (double):");
-        for(i=0; i<N; i++)
-            printf(" %.3lf", fSd[i]);
-        printf("\n");
-    }
-    printf("Serial (single): %.1e s\n", cSf / ((double) CLOCKS_PER_SEC));
-    printf("Serial (double): %.1e s\n", cSd / ((double) CLOCKS_PER_SEC));
-
     cl_uint numDev;
     cl_platform_id platform;
     clGetPlatformIDs(1, &platform, NULL);
     clGetDeviceIDs(platform, CL_DEVICE_TYPE_ALL, 0, NULL, &numDev);
     cl_uint j;
+        
+    char fname_serial[] = "serial_results.txt";
+    FILE *file = fopen(fname_serial, "w");
+    fclose(file);
+
     for(j=0; j<numDev; j++)
     {
-        printf("\nDevice %llu\n", (unsigned long long) j);
-        for(i=0; i<N; i++)
-        {
-            fd[i] = 0.0;
-            ff[i] = 0.0f;
-        }
-        struct gpuSetup gpu;
-        gpuInit(&gpu, j);
-
-        clock_t cf = runOCL_f(xf, ff, N, &gpu);
-        double errf = L1_f(xf, fSf, ff, N);
-        
-#ifdef USE_DOUBLE
-        clock_t cd = runOCL_f(xd, fd, N, &gpu);
-        double errd = L1(xd, fSd, fd, N);
-#endif
-    
-        if(N <= 32)
-        {
-            printf("Dev%llu (single):", (unsigned long long) j);
-            for(i=0; i<N; i++)
-                printf(" %.3lf", ff[i]);
-            printf("\n");
-#ifdef USE_DOUBLE
-            printf("Dev%llu (double):", (unsigned long long) j);
-            for(i=0; i<N; i++)
-                printf(" %.3lf", fd[i]);
-            printf("\n");
-#endif
-        }
-        printf("Dev%llu (single):   %.1e s  (%.2e)\n", (unsigned long long) j,
-               cf / ((double) CLOCKS_PER_SEC), errf);
-#ifdef USE_DOUBLE
-        printf("Dev%llu (double):   %.1e s  (%.2e)\n", (unsigned long long) j,
-               cd / ((double) CLOCKS_PER_SEC), errd);
-#endif
-    
-        gpuFree(&gpu);
+        char fname[256];
+        sprintf(fname, "dev%llu_results.txt", (unsigned long long) j);
+        file = fopen(fname, "w");
+        fclose(file);
     }
 
-    free(xf);
-    free(xd);
-    free(fSf);
-    free(fSd);
-    free(ff);
-    free(fd);
+    int Na = (int) strtol(argv[1], NULL, 10);
+    int N = 32;
+    while(2*N <= Na)
+    {
+        double *xd = (double *)malloc(N * sizeof(double));
+        double *fSd = (double *)malloc(N * sizeof(double));
+        double *fd = (double *)malloc(N * sizeof(double));
+
+        float *xf = (float *)malloc(N * sizeof(float));
+        float *fSf = (float *)malloc(N * sizeof(float));
+        float *ff = (float *)malloc(N * sizeof(float));
+
+        int i;
+        double xmax = 10.0;
+        for(i=0; i<N; i++)
+        {
+            xd[i] = (i*xmax)/(N-1);
+            xf[i] = (float)xd[i];
+        }
+        
+        clock_t cSf = runSerial_f(xf, fSf, N);
+        clock_t cSd = runSerial(xd, fSd, N);
+        if(N <= 32)
+        {
+            printf("Serial (single):");
+            for(i=0; i<N; i++)
+                printf(" %.3lf", fSf[i]);
+            printf("\n");
+            printf("Serial (double):");
+            for(i=0; i<N; i++)
+                printf(" %.3lf", fSd[i]);
+            printf("\n");
+        }
+        printf("Serial (single): %.1e s\n", cSf / ((double) CLOCKS_PER_SEC));
+        printf("Serial (double): %.1e s\n", cSd / ((double) CLOCKS_PER_SEC));
+
+        file = fopen(fname_serial, "a");
+        fprintf(file, "%d %.6e\n",
+                N, cSf / ((double) CLOCKS_PER_SEC));
+        fclose(file);
+
+        for(j=0; j<numDev; j++)
+        {
+            printf("\nDevice %llu\n", (unsigned long long) j);
+            for(i=0; i<N; i++)
+            {
+                fd[i] = 0.0;
+                ff[i] = 0.0f;
+            }
+            struct gpuSetup gpu;
+            gpuInit(&gpu, j);
+
+            clock_t cf = runOCL_f(xf, ff, N, &gpu);
+            double errf = L1_f(xf, fSf, ff, N);
+            
+#ifdef USE_DOUBLE
+            clock_t cd = runOCL_f(xd, fd, N, &gpu);
+            double errd = L1(xd, fSd, fd, N);
+#endif
+        
+            if(N <= 32)
+            {
+                printf("Dev%llu (single):", (unsigned long long) j);
+                for(i=0; i<N; i++)
+                    printf(" %.3lf", ff[i]);
+                printf("\n");
+#ifdef USE_DOUBLE
+                printf("Dev%llu (double):", (unsigned long long) j);
+                for(i=0; i<N; i++)
+                    printf(" %.3lf", fd[i]);
+                printf("\n");
+#endif
+            }
+            printf("Dev%llu (single):   %.1e s  (%.2e)\n",
+                    (unsigned long long) j,
+                   cf / ((double) CLOCKS_PER_SEC), errf);
+#ifdef USE_DOUBLE
+            printf("Dev%llu (double):   %.1e s  (%.2e)\n",
+                    (unsigned long long) j,
+                   cd / ((double) CLOCKS_PER_SEC), errd);
+#endif
+        
+            gpuFree(&gpu);
+
+            char fname[256];
+            sprintf(fname, "dev%llu_results.txt", (unsigned long long) j);
+            file = fopen(fname, "a");
+            fprintf(file, "%d %.6e %.6e\n",
+                    N, cf / ((double) CLOCKS_PER_SEC), errf);
+            fclose(file);
+        }
+
+        free(xf);
+        free(xd);
+        free(fSf);
+        free(fSd);
+        free(ff);
+        free(fd);
+
+        N *= 2;
+    }
+
 
     return 0;
 }
